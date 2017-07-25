@@ -1,5 +1,5 @@
 ﻿using ConsoleApplication1.site;
-using ConsoleApplication1.site.Utils;
+using ConsoleApplication1.site.DataStructs;
 using HtmlAgilityPack;
 using System;
 using System.Collections.Generic;
@@ -13,7 +13,7 @@ namespace ConsoleApplication1.site.interfaces
     {
         Uri BaseUrl { get; }            
         void SavePage(Uri url, HtmlDocument doc);        
-        HtmlDocument this[Uri url] { get; set; }
+        HtmlDocument this[Uri url] { get; }
         bool TryGetUrlsAt(Uri url, out TypedUrl[] foundUrls);        
     }
 }

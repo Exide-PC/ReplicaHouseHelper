@@ -1,5 +1,4 @@
-﻿using ConsoleApplication1.site.Utils;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -8,13 +7,15 @@ using System.Xml.Serialization;
 using System.Xml;
 using System.Xml.Schema;
 
-namespace ConsoleApplication1.site.Utils
+namespace ConsoleApplication1.site.DataStructs
 {
     public class RobotSession: IXmlSerializable
     {
         public bool IsFinished { get; set; } = false;
-        public List<Uri> FoundUrls { get; set; } = new List<Uri>();
+        public List<Page> FoundPages { get; set; } = new List<Page>();
         public Queue<Uri> NotDequeuedUrls { get; set; } = new Queue<Uri>();
+
+        static XmlSerializer pageSerializer = new XmlSerializer(typeof(Page));
 
         public XmlSchema GetSchema() => null;
 
@@ -32,23 +33,33 @@ namespace ConsoleApplication1.site.Utils
 
             if (!reader.IsEmptyElement)
             {
-                reader.ReadStartElement(); // <FoundUrls>
-
+                reader.ReadStartElement(); // <FoundPages>
+                
                 while (reader.NodeType != XmlNodeType.EndElement)
                 {
-                    reader.MoveToContent();
-                    reader.MoveToNextAttribute(); // AbsoluteUrl
+                    Page foundPage = (Page)pageSerializer.Deserialize(reader);
+                    this.FoundPages.Add(foundPage);
 
-                    Uri foundUrl = new Uri(reader.Value, UriKind.Absolute);
-                    this.FoundUrls.Add(foundUrl);
+                    /*reader.MoveToContent();
+                    reader.MoveToNextAttribute(); // AbsoluteUrl
+                    Uri foundUrl = new Uri(reader.Value, UriKind.Absolute);                    
+
+                    reader.MoveToNextAttribute(); // AbsoluteUrl
+                    System.Net.HttpStatusCode response = (System.Net.HttpStatusCode) (int.Parse(reader.Value));
+
+                    Page urlResponse = new Page() {
+                        Url = foundUrl,
+                        StatusCode = response
+                    };
+                    this.FoundPages.Add(urlResponse);
 
                     reader.MoveToElement();  // <Url ...
-                    reader.Read(); // Переходим к следующему узлу
+                    reader.Read(); // Переходим к следующему узлу*/
                 }
                 reader.ReadEndElement(); // </FoundUrls>
             }
             else
-                reader.Read(); // съедаем <FoundUrls />
+                reader.Read(); // съедаем <FoundPages />
 
             // NotDequeuedUrls
 
@@ -81,13 +92,15 @@ namespace ConsoleApplication1.site.Utils
             // IsFinished
             writer.WriteAttributeString("IsFinished", this.IsFinished.ToString());
 
-            // FoundUrls
-            writer.WriteStartElement("FoundUrls");
-            foreach (Uri foundUrl in this.FoundUrls)
+            // FoundPages
+            writer.WriteStartElement("FoundPages");
+            foreach (Page foundUrl in this.FoundPages)
             {
-                writer.WriteStartElement("Url");
-                writer.WriteAttributeString("AbsoluteUrl", foundUrl.AbsoluteUri);
-                writer.WriteEndElement();
+                pageSerializer.Serialize(writer, foundUrl);
+                /*writer.WriteStartElement("UrlResponse");
+                writer.WriteAttributeString("Url", foundUrl.Url.AbsoluteUri);
+                writer.WriteAttributeString("StatusCode", ((int)foundUrl.StatusCode).ToString());
+                writer.WriteEndElement();*/
             }
             writer.WriteEndElement();
 

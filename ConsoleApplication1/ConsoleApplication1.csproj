@@ -53,16 +53,17 @@
     <Compile Include="site\interfaces\IWebSite.cs" />
     <Compile Include="Other\Crypt.cs" />
     <Compile Include="Other\MyConfig.cs" />
-    <Compile Include="site\Product.cs" />
+    <Compile Include="site\DataStructs\Product.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="site\InsalesShop.cs" />
-    <Compile Include="site\ReplicaHouse.cs" />
+    <Compile Include="site\inheritance\InsalesShop.cs" />
+    <Compile Include="site\inheritance\ReplicaHouse.cs" />
     <Compile Include="site\Robot.cs" />
-    <Compile Include="SerializableDictionary.cs" />
-    <Compile Include="site\CachedSite.cs" />
-    <Compile Include="site\Utils\RobotSession.cs" />
-    <Compile Include="site\Utils\TypedUrl.cs" />
+    <Compile Include="site\DataStructs\SerializableDictionary.cs" />
+    <Compile Include="site\inheritance\CachedSite.cs" />
+    <Compile Include="site\DataStructs\RobotSession.cs" />
+    <Compile Include="site\DataStructs\TypedUrl.cs" />
+    <Compile Include="site\DataStructs\Page.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config">

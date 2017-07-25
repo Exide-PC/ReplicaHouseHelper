@@ -7,13 +7,12 @@ using System.Xml;
 using System.Xml.Schema;
 using System.Xml.Serialization;
 
-namespace ConsoleApplication1.site
+namespace ConsoleApplication1.site.DataStructs
 {
     public class Product: IEquatable<Product> //: IXmlSerializable
     {          
         public static readonly string DEFAULT_NO_DATA = "NULL";
-
-        public bool IsValid = false;
+        
         public string Url = DEFAULT_NO_DATA;
         public string Title = DEFAULT_NO_DATA;
         public string VendorCode = DEFAULT_NO_DATA;
@@ -22,6 +21,7 @@ namespace ConsoleApplication1.site
         public PropertiesDictionary Properties = new PropertiesDictionary();
         public string ShortDescription = DEFAULT_NO_DATA;
         public string FullDescription = DEFAULT_NO_DATA;
+        //public string FullDescriptionHtml = DEFAULT_NO_DATA;
 
         public bool Equals(Product other)
         {
