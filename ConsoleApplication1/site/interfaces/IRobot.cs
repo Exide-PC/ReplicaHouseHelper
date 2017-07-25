@@ -1,5 +1,5 @@
 ﻿using ConsoleApplication1.site;
-using ConsoleApplication1.site.Utils;
+using ConsoleApplication1.site.DataStructs;
 using HtmlAgilityPack;
 using System;
 using System.Collections.Generic;

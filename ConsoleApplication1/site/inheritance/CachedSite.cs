@@ -1,32 +1,37 @@
 ﻿
 using ConsoleApplication1.site.interfaces;
-using ConsoleApplication1.site.Utils;
 using HtmlAgilityPack;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Xml.Serialization;
+using System.Xml;
+using System.Xml.Schema;
+using ConsoleApplication1.site.DataStructs;
 
-namespace ConsoleApplication1.site
+namespace ConsoleApplication1.site.inheritance
 {
-    class CachedSite: IObserver<Robot.RobotEvtArgs>
+    public class CachedSite: IObserver<Robot.RobotEvtArgs>
     {      
         public Uri BaseUrl { get; }
-        public Uri[] URLs => urls.ToArray();
-        protected bool IsValidPageCache => this.urls.Count > 0;
-        RobotSession currentSession;
+        public Uri[] URLs => pages.Select(resp => resp.Url).ToArray();
+        public Page[] Pages => this.pages.ToArray();
 
-        string robotSessionPath;
-        
         protected string OwnDir { get; }
-        HashSet<Uri> urls;
+        protected bool IsValidPageCache { get; private set; }
+
+        HashSet<Page> pages;
         Robot robot;
-        XmlSerializer serializer;
-        XmlSerializer sessionSerializer;
+        RobotSession currentSession;
+        XmlSerializer sessionSerializer;   
+        string robotSessionPath;
+        int downloadsUntilSave = 25;
+        int downloadCounter = 0;
 
         static Regex siteNamePattern = new Regex("(^(www|wap)\\.)|(\\.[a-zA-Z]+$)", RegexOptions.Compiled);
         static Regex accessibleSymbols = new Regex(@"[a-zA-Z._=0-9-]{1}", RegexOptions.Compiled);
@@ -38,7 +43,7 @@ namespace ConsoleApplication1.site
                 this.BaseUrl = createdUri;
             else throw new Exception($"Невозможно создание абсолютного URL из {siteUrl}");
             
-            this.urls = new HashSet<Uri>();
+            this.pages = new HashSet<Page>();
             this.robot = new Robot(this.BaseUrl.AbsoluteUri);
 
             string siteName = this.GetSiteName(this.BaseUrl);
@@ -50,20 +55,20 @@ namespace ConsoleApplication1.site
             this.robotSessionPath = $@"{this.OwnDir}\Session.xml";
             
             this.InitOwnDir();
-            this.serializer = new XmlSerializer(typeof(string[]));
             this.sessionSerializer = new XmlSerializer(typeof(RobotSession));
 
-            if (File.Exists(this.robotSessionPath))
+            if (PreviosSessionExists())
             {
                 using (StreamReader sr = File.OpenText(this.robotSessionPath))
                 {
                     RobotSession lastRobotSession = (RobotSession)sessionSerializer.Deserialize(sr);
+                    this.IsValidPageCache = lastRobotSession.IsFinished;
 
-                    if (lastRobotSession.IsFinished)
-                        foreach (Uri url in lastRobotSession.FoundUrls)
-                            this.urls.Add(url);
+                    foreach (Page foundPage in lastRobotSession.FoundPages)
+                        this.pages.Add(foundPage);                    
                 }
             }
+            else this.IsValidPageCache = false;
 
             /*if (File.Exists(this.holderFile))
                 using (StreamReader sr = File.OpenText(this.holderFile))
@@ -78,13 +83,16 @@ namespace ConsoleApplication1.site
                 this.urls.Add(new Uri(foundUrl, UriKind.Absolute));*/
         }
 
+        public bool PreviosSessionExists() => File.Exists(this.robotSessionPath);
 
         public HtmlDocument this[Uri url]
         {
             get
             {
-                if (this.urls.Count == 0)
-                    throw new Exception("Не сохранено ни одной страницы.");
+                if (this.pages.Count == 0)
+                    throw new InvalidDataException("Не сохранено ни одной страницы.");
+                if (!this.IsValidPageCache)
+                    throw new InvalidDataException($"Невалидный кеш страниц сайта {this.BaseUrl}");
 
                 HtmlDocument doc;
                 bool success = this.TryGetCachedPage(url, out doc);
@@ -95,10 +103,10 @@ namespace ConsoleApplication1.site
                     throw new FileNotFoundException($"Невозможно получить файл по адресу {UrlToPath(url)}");
             }
 
-            set
-            {
-                CachePage(url, value, true);
-            }
+            //set
+            //{
+            //    CachePage(url, value, true);
+            //}
         }
 
         protected string GetSiteName(Uri url)
@@ -120,9 +128,10 @@ namespace ConsoleApplication1.site
         public void UpdatePageCache(bool continueSession = false)
         {
             if (continueSession && this.IsValidPageCache)
-                throw new Exception("Невозможно продолжить прошлую сессию, т.к. она завершена.");
+                return;
             
             this.currentSession = new RobotSession();
+            this.downloadCounter = 0;
 
             // Если нужно продолжить прошлую сессию, то дополняем текущую сессию данными
             if (continueSession && File.Exists(this.robotSessionPath))
@@ -130,8 +139,11 @@ namespace ConsoleApplication1.site
                 {
                     RobotSession lastSession = (RobotSession)sessionSerializer.Deserialize(sr);
                     
-                    foreach (Uri foundUrl in lastSession.FoundUrls)
-                        this.currentSession.FoundUrls.Add(foundUrl);
+                    foreach (Page urlResponse in lastSession.FoundPages)
+                    {
+                        this.currentSession.FoundPages.Add(urlResponse);
+                        this.robot.AddSpottedUrl(urlResponse.Url);
+                    }                        
 
                     foreach (Uri notDequeuedUrl in lastSession.NotDequeuedUrls)
                         robot.UrlQueue.Enqueue(notDequeuedUrl);
@@ -184,9 +196,11 @@ namespace ConsoleApplication1.site
             while (Directory.Exists(this.OwnDir))
                 Thread.Sleep(1);
 
-            this.urls.Clear();
+            this.pages.Clear();
         }
 
+        public HttpStatusCode GetUrlStatusCode(Uri url) =>
+            this.pages.Where(resp => resp.Url == url).First().StatusCode;
 
         string UrlToPath(Uri url)
         {            
@@ -201,10 +215,10 @@ namespace ConsoleApplication1.site
         }
 
         public bool TryGetCachedPage(Uri url, out HtmlDocument doc)
-        {           
+        {
             string filePath = this.UrlToPath(url);
 
-            if (!File.Exists(filePath))
+            if (!this.IsValidPageCache || !File.Exists(filePath))
             {
                 doc = null;
                 return false;
@@ -218,11 +232,12 @@ namespace ConsoleApplication1.site
             return true;
         }
 
-        void CachePage(Uri url, HtmlDocument doc, bool addToList)
-        {         
+        void CachePage(Uri url, HtmlDocument doc)
+        {
+            if (doc == null)
+                throw new ArgumentNullException("doc");
+
             // Сохраняем ссылку в текущем экземпляре
-            if (addToList)
-                this.urls.Add(url);
 
             // Заносим URL в конец файла со всеми URL
             /*string[] line = { url.AbsoluteUri };
@@ -257,24 +272,77 @@ namespace ConsoleApplication1.site
 
         public void OnNext(Robot.RobotEvtArgs args)
         {
-            if (args.EvtType != Robot.RobotEvtArgs.RobotEvtType.PageResponse)
-                return;
+            switch (args.EvtType)
+            {
+                case Robot.RobotEvtArgs.RobotEvtType.PageResponse:
+                    {       
+                        Page page = new Page()
+                        {
+                            Url = args.Url,
+                            StatusCode = args.Response.StatusCode
+                        };
+                        currentSession.FoundPages.Add(page);
+                        this.pages.Add(page);
 
-            this.CachePage(args.Url, args.Document, false);
+                        if (args.Response.StatusCode != System.Net.HttpStatusCode.OK)
+                            return; // TODO: Обработка ссылок на 404            
 
-            currentSession.FoundUrls.Add(args.Url);
-            currentSession.NotDequeuedUrls.Clear();
+                        
+                        this.CachePage(args.Url, args.Document);                        
 
-            Uri[] notDequeuedUrls = robot.UrlQueue.ToArray();
+                        currentSession.NotDequeuedUrls.Clear();
+                        Uri[] notDequeuedUrls = robot.UrlQueue.ToArray();
 
-            foreach (Uri url in notDequeuedUrls)
-                currentSession.NotDequeuedUrls.Enqueue(url);
+                        foreach (Uri url in notDequeuedUrls)
+                            currentSession.NotDequeuedUrls.Enqueue(url);
 
-            File.Delete(this.robotSessionPath);
+                        break;
+                    }
+                case Robot.RobotEvtArgs.RobotEvtType.UrlsOnPageFound:
+                    {
+                        Page targetPage = this.pages.First(page => page.Url == args.Url);
+
+                        foreach (TypedUrl urlOnPage in args.UrlsOnPage)
+                            targetPage.UrlsOnPage.Add(urlOnPage);
+
+                        // Счётчик увеличивается только при нахождении валидных страниц
+                        if (++downloadCounter % downloadsUntilSave == 0)
+                            SaveCurrentSession();
+
+                        break;
+                    }
+            }
+        }
+
+        void SaveCurrentSession()
+        {
+            if (currentSession == null)
+                throw new InvalidDataException("Текущая сессия не валидна.");
+
+            Console.WriteLine("Сохраняемся");
 
             using (FileStream fs = File.OpenWrite(this.robotSessionPath))
                 sessionSerializer.Serialize(fs, currentSession);
         }
+
+        public List<Uri> UrlsByStatusCode(HttpStatusCode statusCode)
+        {
+            if (!this.IsValidPageCache)
+                throw new InvalidDataException("Кэш сайта не валиден");
+
+            return this.pages
+                .Where(resp => resp.StatusCode == statusCode)
+                .Select(resp => resp.Url)
+                .ToList();
+        }
+        
+        public HttpStatusCode StatusCodeByUrl(Uri targetUrl)
+        {
+            if (!this.IsValidPageCache)
+                throw new InvalidDataException("Невалидный кеш страниц.");
+
+            return this.pages.Where(urlResponce => urlResponce.Url == targetUrl).First().StatusCode;
+        }        
 
         public void OnError(Exception error)
         {
@@ -284,15 +352,8 @@ namespace ConsoleApplication1.site
         public void OnCompleted()
         {
             this.currentSession.IsFinished = true;
-            throw new NotImplementedException();
-        }
-
-        /*public class Page
-        {
-            public Uri Url { get; set; }
-            public TypedUrl[] ChildUrls { get; set; }
-
-            public Page() { }
-        }*/
+            this.IsValidPageCache = true;
+            SaveCurrentSession();
+        }      
     }
 }

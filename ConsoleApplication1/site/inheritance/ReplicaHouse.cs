@@ -4,14 +4,15 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using HtmlAgilityPack;
+using ConsoleApplication1.site.DataStructs;
 
-namespace ConsoleApplication1.site
+namespace ConsoleApplication1.site.inheritance
 {
     sealed class ReplicaHouse : InsalesShop
     {
         public ReplicaHouse() : base("https://replicahouse.ru") { }
 
-        protected override PageTemplate GetPageTemplate(HtmlDocument doc)
+        /*protected override PageTemplate GetPageTemplate(HtmlDocument doc)
         {            
             var body = doc.DocumentNode.Descendants("body").First();
             string template = body.Attributes["class"].Value;
@@ -23,41 +24,21 @@ namespace ConsoleApplication1.site
                 case "template-page_404": return PageTemplate.Error404;
                 default: return PageTemplate.Undetermined;
             }            
-        }
+        }*/
 
-        protected override Product ParseProduct(Uri url)
+        protected override Product ParseProduct(HtmlDocument productDoc)
         {
             if (this.URLs.Length == 0)
                 throw new Exception("Не сохранено ни одной страницы");
-
-            HtmlDocument doc = this[url];
-            Product product = new Product();
-
-            // Задаем Url продукта в любом случае
-            product.Url = url.AbsoluteUri;
-
-            // Проверка шаблона на 404 и соответствие шаблону продукта
-            PageTemplate template = GetPageTemplate(doc);
-            if (template == PageTemplate.Error404)
-            {
-                product.IsValid = false;
-                return product;
-            }
-            else if (template == PageTemplate.Product)
-                product.IsValid = true;
-            else
-                throw new Exception("Документ не имеет шаблон продукта");
-
-            //
-            // Начинаем обработку страницы товара, если страница корректна
-            //
-
-            // Заранее зададим нужные узлы
-            var divNodes = doc.DocumentNode.Descendants("div");
-            var pNodes = doc.DocumentNode.Descendants("p");
+            
+            Product product = new Product();                        
+            
+            // Заранее получим все часто используемые узлы
+            var divNodes = productDoc.DocumentNode.Descendants("div");
+            var pNodes = productDoc.DocumentNode.Descendants("p");
 
             // Title
-            string title = doc.DocumentNode.Descendants("h1").Where(
+            string title = productDoc.DocumentNode.Descendants("h1").Where(
                                 h => h.Attributes["itemprop"]?.Value == "name")
                                 .First().InnerText;
             product.Title = title;
@@ -68,9 +49,12 @@ namespace ConsoleApplication1.site
             product.VendorCode = vendorCode;
 
             // Описание
-            HtmlNode descriptionNode = doc.GetElementbyId("tab-description-content");
+            HtmlNode descriptionNode = productDoc.GetElementbyId("tab-description-content");
             if (descriptionNode != null) // Если описание задано
+            {
                 product.FullDescription = descriptionNode.InnerText.Replace("\t", "");
+                //product.FullDescriptionHtml = descriptionNode.InnerHtml;
+            }                
 
             // Свойства
             var foundPropNodes = divNodes.Where(
@@ -87,7 +71,7 @@ namespace ConsoleApplication1.site
 
                     string innerText = propertyNode.InnerText;
                     string propName = propertyNode.FirstChild.InnerText.Replace(":", "");
-                    string propValue = propertyNode.InnerText.Replace(propName, "").Trim();
+                    string propValue = propertyNode.InnerText.Replace(propName, "").Replace(":","").Trim();
 
                     product.Properties.Add(propName, propValue);
                 }

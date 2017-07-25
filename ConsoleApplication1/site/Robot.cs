@@ -1,7 +1,7 @@
 ﻿
 
+using ConsoleApplication1.site.DataStructs;
 using ConsoleApplication1.site.interfaces;
-using ConsoleApplication1.site.Utils;
 using HtmlAgilityPack;
 using System;
 using System.Collections.Generic;
@@ -19,6 +19,7 @@ namespace ConsoleApplication1.site
         public bool IsBusy { get; private set; }
         public int ThreadCount { get; private set; }
         public Queue<Uri> UrlQueue { get; }
+        HashSet<Uri> spottedUrls;
         List<IObserver<RobotEvtArgs>> observers;
 
         HtmlWeb web;
@@ -32,6 +33,7 @@ namespace ConsoleApplication1.site
 
             this.web = new HtmlWeb();
             this.UrlQueue = new Queue<Uri>();
+            this.spottedUrls = new HashSet<Uri>();
             this.observers = new List<IObserver<RobotEvtArgs>>();
         }
 
@@ -39,55 +41,61 @@ namespace ConsoleApplication1.site
         public event EventHandler<RobotEvtArgs> OnUrlsOnPageFound;
         //public event EventHandler<RobotEvtArgs> OnErrorGettingUrls;
         public event EventHandler<RobotEvtArgs> OnFinish;
-              
+
+        public void AddSpottedUrl(Uri url) => this.spottedUrls.Add(url);
+
         public void Run()
         {
             if (this.IsBusy) throw new RobotException($"Робот уже занят обходом ресурса {this.BaseUrl}");
 
             this.IsBusy = true; // Переводим его в занятое состояние
                  
-            HashSet<Uri> spottedUrls = new HashSet<Uri>(); // Uri, т.к. быстрее и проще
+            //HashSet<Uri> spottedUrls = new HashSet<Uri>(); // Uri, т.к. быстрее и проще
             int counter = 0;
 
             // Обрабатываем Url, не догруженные с прошлой сессии
             if (this.UrlQueue.Count == 0)
             {
                 this.UrlQueue.Enqueue(this.BaseUrl);
-                spottedUrls.Add(this.BaseUrl);
+                AddSpottedUrl(this.BaseUrl);
             }
             else
-                foreach (Uri spotterUrl in this.UrlQueue)
-                    spottedUrls.Add(spotterUrl);
+            {
+                foreach (Uri enqueuedUrl in this.UrlQueue)
+                    AddSpottedUrl(enqueuedUrl);
+            }
+                
             
             while (UrlQueue.Count > 0)
             {
                 Uri nextUrl = UrlQueue.Dequeue();
+                //AddSpottedUrl(nextUrl);
                 //this.OnUrlDequeued?.Invoke(this, RobotEvtArgs.UrlDequeued(nextUrl.Url, nextUrl.UrlType));
 
                 // new implementation
                 HttpWebResponse responce = this.GetResponse(nextUrl);
-                HtmlDocument doc;
+                
+                //foreach (IObserver<RobotEvtArgs> obs in this.observers)
+                //    obs.OnNext(RobotEvtArgs.OnPageResponse(nextUrl, responce));
 
                 Console.WriteLine($"{++counter}. Качаем {nextUrl}");
-                TryGetHtml(responce, out doc);
-                //if (responce.StatusCode == HttpStatusCode.OK)
-                //{
-                //    string html = new StreamReader(responce.GetResponseStream()).ReadToEnd();
-                //    doc.LoadHtml(html);
-                //}
+
+                HtmlDocument doc;
+                bool htmlReceived = TryGetHtml(responce, out doc);
+
+                foreach (IObserver<RobotEvtArgs> obs in this.observers)
+                        obs.OnNext(RobotEvtArgs.OnPageResponse(nextUrl, responce, doc));
+
+                if (!htmlReceived) continue; // Если страница не получена - переходим к следующей
 
                 //Console.WriteLine($"{++counter}. Качаем {nextUrl}");
-                //HtmlDocument doc = GetHtmlFrom(nextUrl);
-
-                foreach (IObserver<RobotEvtArgs> sub in observers)
-                    sub.OnNext(RobotEvtArgs.OnPageResponse(nextUrl, responce, doc));
+                //HtmlDocument doc = GetHtmlFrom(nextUrl);                                   
 
                 //this.OnPageResponse?.Invoke(
                 //    this,
                 //    RobotEvtArgs.OnPageResponse(nextUrl, responce, doc)
                 //    );
-
-                spottedUrls.Add(nextUrl);
+                
                 Console.WriteLine($"Осталось: {UrlQueue.Count}");
 
 
@@ -95,7 +103,7 @@ namespace ConsoleApplication1.site
                 if (!this.TryParseUrlsAt(doc, out foundUrls))
                 {
                     //this.OnErrorGettingUrls?.Invoke(this, RobotEvtArgs.ErrorGettingUrls(nextUrl);
-                    continue;
+                    continue; // Если ни одного Url не найдено - переходим к следующей странице
                 }
                 else
                     //this.OnUrlsOnPageFound?.Invoke(
@@ -103,8 +111,8 @@ namespace ConsoleApplication1.site
                     //    RobotEvtArgs.UrlsOnPageFound(
                     //        url: nextUrl, 
                     //        foundUrls: foundUrls.ToArray()));
-                    foreach (IObserver<RobotEvtArgs> sub in observers)
-                        sub.OnNext(
+                    foreach (IObserver<RobotEvtArgs> obs in observers)
+                        obs.OnNext(
                             RobotEvtArgs.UrlsOnPageFound(
                                 url: nextUrl,
                                 foundUrls: foundUrls.ToArray()));
@@ -116,25 +124,32 @@ namespace ConsoleApplication1.site
                         if (!spottedUrls.Contains(foundUri.Url)) //&& !queue.Any(uri => uri.Url == foundUri.Url))
                         {
                             UrlQueue.Enqueue(foundUri.Url);
-                            spottedUrls.Add(foundUri.Url);
-                            Console.WriteLine($"{UrlQueue.Count}. {foundUri.Url}");
+                            AddSpottedUrl(foundUri.Url);
+                            //Console.WriteLine($"{UrlQueue.Count}. {foundUri.Url}");
                         }
                 }
             }
 
-            // Событие, вызываемое в конце обхода страниц
+            // Метод, вызываемый в конце обхода страниц
             foreach (IObserver<RobotEvtArgs> sub in observers)
                 sub.OnCompleted();
             
 
             this.observers.Clear();
+            this.spottedUrls.Clear();
             //this.OnFinish?.Invoke(this, RobotEvtArgs.Finished());
 
             this.IsBusy = false; // Освобождаем робота
         }
 
-        public bool TryParseUrlsAt(HtmlDocument doc, out List<TypedUrl> foundUrls) //, Uri parentUri)
+        public bool TryParseUrlsAt(HtmlDocument doc, out List<TypedUrl> foundUrls)
         {
+            /*if (doc == null)
+            {
+                foundUrls = null;
+                return false;
+            }*/
+
             HtmlNodeCollection hrefColl = doc.DocumentNode.SelectNodes("//a[@href]");
 
             if (hrefColl == null)
@@ -164,7 +179,7 @@ namespace ConsoleApplication1.site
                     }
                     else
                     {
-                        // Обработка найденных абсолютных ссылок
+                        // Обработка найденных абсолютных внешних ссылок
                         foundUrls.Add(new TypedUrl(createdAbsoluteUri, LinkType.Absolute));
                         continue; // Больше нечего делать
                     }
@@ -280,7 +295,7 @@ namespace ConsoleApplication1.site
 
         public class RobotEvtArgs : EventArgs
         {
-            public enum RobotEvtType { PageResponse, UrlsOnPageFound, Finish }//, UrlDequeued, ErrorGettingUrls }
+            public enum RobotEvtType { PageResponse, PageDownloaded, UrlsOnPageFound, Finish }//, UrlDequeued, ErrorGettingUrls }
 
             public RobotEvtType EvtType { get; private set; }
             public Uri Url { get; private set; } = null;
@@ -306,11 +321,23 @@ namespace ConsoleApplication1.site
 
                 args.EvtType = RobotEvtType.PageResponse;
                 args.Url = foundUri;
+                args.Response = response;
+                args.Document = doc;
+
+                return args;
+            }
+
+            /*public static RobotEvtArgs OnPageDownloaded(Uri url, HtmlDocument doc, HttpWebResponse response)
+            {
+                RobotEvtArgs args = new Robot.RobotEvtArgs();
+
+                args.EvtType = RobotEvtType.PageDownloaded;
+                args.Url = url;
                 args.Document = doc;
                 args.Response = response;
 
                 return args;
-            }
+            }*/
 
             public static RobotEvtArgs Finished()
             {
